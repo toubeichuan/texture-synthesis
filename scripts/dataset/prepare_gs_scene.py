@@ -59,6 +59,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--copy-metadata", action="store_true", help="Copy args.json/viewpoints.json into the scene folder.")
     parser.add_argument("--clean", action="store_true", help="Remove an existing scene directory before writing.")
+    parser.add_argument(
+        "--allow-repeat-cameras",
+        action="store_true",
+        help="Allow multiple supervision images to share the same camera pose. Intended only for smoke tests.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print the planned conversion without writing files.")
     return parser.parse_args()
 
@@ -330,6 +335,15 @@ def make_transforms(
     return {"camera_angle_x": camera_angle_x, "frames": frames}
 
 
+def count_unique_camera_poses(transforms: Dict[str, Any], precision: int = 8) -> int:
+    signatures = set()
+    for frame in transforms["frames"]:
+        matrix = frame["transform_matrix"]
+        signature = tuple(round(value, precision) for row in matrix for value in row)
+        signatures.add(signature)
+    return len(signatures)
+
+
 def assert_transforms_paths(scene_dir: Path, transforms: Dict[str, Any]) -> None:
     for frame in transforms["frames"]:
         rel = frame["file_path"]
@@ -353,6 +367,15 @@ def write_scene(args: argparse.Namespace) -> Dict[str, Any]:
 
     train_transforms = make_transforms(views, args.camera_angle_x, "./train", rotation)
     test_transforms = train_transforms if args.test_mode == "copy-train" else {"camera_angle_x": args.camera_angle_x, "frames": []}
+    unique_camera_poses = count_unique_camera_poses(train_transforms)
+    if len(images) > 1 and unique_camera_poses < len(images) and not args.allow_repeat_cameras:
+        raise ValueError(
+            "selected supervision images do not have one unique camera pose per image "
+            f"({len(images)} images, {unique_camera_poses} unique camera poses). "
+            "This usually means an EASI-DYC locked-view/update-step output was selected instead of a multi-view output. "
+            "Use a multi-view viewpoints.json, reduce --max-images to 1 for a smoke test, or pass "
+            "--allow-repeat-cameras explicitly if repeated poses are intentional."
+        )
 
     plan = {
         "texture_output": str(texture_output),
@@ -362,6 +385,7 @@ def write_scene(args: argparse.Namespace) -> Dict[str, Any]:
         "num_images": len(images),
         "first_image": str(images[0]),
         "last_image": str(images[-1]),
+        "unique_camera_poses": unique_camera_poses,
         "camera_angle_x": args.camera_angle_x,
         "rotate_xyz_deg": [args.rotate_x_deg, args.rotate_y_deg, args.rotate_z_deg],
         "test_mode": args.test_mode,

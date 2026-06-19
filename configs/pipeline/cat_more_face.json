@@ -12,6 +12,7 @@
     "image_dir": "update/inpainted",
     "image_pattern": "*.png",
     "image_filter": "numeric",
+    "max_images": 1,
     "viewpoints": "viewpoints.json",
     "camera_angle_x": 1.413716694,
     "rotate_x_deg": 90.0,
@@ -19,7 +20,8 @@
     "rotate_z_deg": 0.0,
     "test_mode": "copy-train",
     "copy_metadata": true,
-    "clean": true
+    "clean": true,
+    "allow_repeat_cameras": false
   },
   "gaussian": {
     "env": "gaussian_splatting_mesh",

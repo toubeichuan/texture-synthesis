@@ -279,6 +279,7 @@ python scripts/run_pipeline.py \
 ```
 
 The current example texture output uses a locked camera, so all selected supervision images share the same camera pose. This is useful for checking the full code path, but stronger novel-view training should use multi-view EASI-DYC outputs or an edited `viewpoints.json` with distinct camera poses.
+For this reason, the example config limits the locked-view output to `max_images: 1`. If a config selects multiple images but they resolve to the same camera pose, the preparation script stops with an error unless `allow_repeat_cameras` is explicitly enabled for a deliberate smoke test.
 
 ## Paper Files
 

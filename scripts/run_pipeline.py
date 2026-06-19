@@ -110,6 +110,8 @@ def run_prepare_gs(config: Dict[str, Any], dry_run: bool) -> None:
         command.append("--copy-metadata")
     if prepare.get("clean", False):
         command.append("--clean")
+    if prepare.get("allow_repeat_cameras", False):
+        command.append("--allow-repeat-cameras")
     if dry_run:
         command.append("--dry-run")
     run_command(command, cwd=PROJECT_ROOT, dry_run=False)
