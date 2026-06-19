@@ -1,5 +1,5 @@
 {
-  "scene_name": "cat_more_face_pipeline",
+  "scene_name": "cat_more_face_generate10",
   "texture": {
     "env": "easitex",
     "cwd": "easi-dyc",
@@ -7,7 +7,7 @@
   },
   "prepare_gs": {
     "texture_output": "outputs/texture_synthesis/outputs_labubu_generate_texture_labubu_lockedview0_test24WithCor_1.4/canny/cat-round_bird/42-ip0.0-cn1.0-dist0.8-gs10.0-p1-h20-us0.4-vt0.1",
-    "scene_dir": "data/scenes/cat_more_face_pipeline",
+    "scene_dir": "data/scenes/cat_more_face_generate10",
     "mesh_source": "auto",
     "image_dir": "generate/inpainted",
     "image_pattern": "*.png",
@@ -27,8 +27,8 @@
   "gaussian": {
     "env": "gaussian_splatting_mesh",
     "repo": "gaussian-mesh-splatting",
-    "source_path": "data/scenes/cat_more_face_pipeline",
-    "model_path": "outputs/gaussian_splatting/cat_more_face_pipeline",
+    "source_path": "data/scenes/cat_more_face_generate10",
+    "model_path": "outputs/gaussian_splatting/cat_more_face_generate10",
     "gs_type": "gs_mesh",
     "num_splats": 5,
     "white_background": true,

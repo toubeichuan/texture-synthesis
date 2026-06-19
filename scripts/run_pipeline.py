@@ -24,6 +24,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run texture synthesis -> GS scene preparation -> GaMeS stages.")
     parser.add_argument("--config", required=True, help="Pipeline config JSON file.")
     parser.add_argument(
+        "--run-name",
+        default=None,
+        help="Convenience name for this experiment. Sets scene/output paths unless they are overridden explicitly.",
+    )
+    parser.add_argument(
         "--stage",
         choices=["texture", "prepare_gs", "train_gs", "render_gs", "all"],
         default="all",
@@ -32,6 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Print commands without executing them.")
 
     prepare_group = parser.add_argument_group("GS scene preparation overrides")
+    prepare_group.add_argument("--scene-root", default="data/scenes", help="Root used with --run-name for prepared GS scenes.")
     prepare_group.add_argument("--texture-output", default=None, help="Override prepare_gs.texture_output.")
     prepare_group.add_argument("--scene-dir", default=None, help="Override prepare_gs.scene_dir and gaussian.source_path.")
     prepare_group.add_argument("--mesh-source", default=None, help="Override prepare_gs.mesh_source.")
@@ -52,6 +58,11 @@ def parse_args() -> argparse.Namespace:
     prepare_group.add_argument("--no-clean", action="store_true", help="Do not clean the scene directory before preparation.")
 
     gaussian_group = parser.add_argument_group("Gaussian training/rendering overrides")
+    gaussian_group.add_argument(
+        "--gaussian-output-root",
+        default="outputs/gaussian_splatting",
+        help="Root used with --run-name for GaMeS checkpoints and renders.",
+    )
     gaussian_group.add_argument("--source-path", default=None, help="Override gaussian.source_path.")
     gaussian_group.add_argument("--model-path", default=None, help="Override gaussian.model_path.")
     gaussian_group.add_argument("--gs-type", default=None, help="Override gaussian.gs_type.")
@@ -84,6 +95,8 @@ def apply_cli_overrides(config: Dict[str, Any], args: argparse.Namespace) -> Non
     prepare = config.setdefault("prepare_gs", {})
     gaussian = config.setdefault("gaussian", {})
 
+    # The JSON file holds reproducible defaults. CLI overrides are for the
+    # last-mile experiment knobs that change frequently while iterating.
     prepare_overrides = {
         "texture_output": args.texture_output,
         "scene_dir": args.scene_dir,
@@ -130,6 +143,18 @@ def apply_cli_overrides(config: Dict[str, Any], args: argparse.Namespace) -> Non
     if args.skip_test_render:
         gaussian["skip_test_render"] = True
 
+    # A run name gives every experiment its own prepared scene and output
+    # folder, so smoke tests and full runs do not overwrite each other.
+    if args.run_name:
+        scene_dir = str(Path(args.scene_root) / args.run_name)
+        model_path = str(Path(args.gaussian_output_root) / args.run_name)
+        if args.scene_dir is None:
+            prepare["scene_dir"] = scene_dir
+        if args.source_path is None:
+            gaussian["source_path"] = prepare["scene_dir"]
+        if args.model_path is None:
+            gaussian["model_path"] = model_path
+
     if args.scene_dir and not args.source_path:
         gaussian["source_path"] = args.scene_dir
 
@@ -161,6 +186,8 @@ def run_texture(config: Dict[str, Any], dry_run: bool) -> None:
 
 def run_prepare_gs(config: Dict[str, Any], dry_run: bool) -> None:
     prepare = config["prepare_gs"]
+    # This stage only prepares a lightweight NeRF/GaMeS-style dataset:
+    # mesh.obj, train/*.png, and transforms_*.json. It does not train GS.
     command = [
         sys.executable,
         str(PROJECT_ROOT / "scripts/dataset/prepare_gs_scene.py"),
@@ -212,6 +239,8 @@ def run_train_gs(config: Dict[str, Any], dry_run: bool) -> None:
     gaussian = config["gaussian"]
     repo = resolve(gaussian.get("repo", "gaussian-mesh-splatting"))
     env = gaussian.get("env", "gaussian_splatting_mesh")
+    # GaMeS expects to be launched from its own repository because it imports
+    # local modules such as scene, games, and renderer.
     command = conda_prefix(env) + [
         "python",
         "train.py",
@@ -240,6 +269,8 @@ def run_render_gs(config: Dict[str, Any], dry_run: bool) -> None:
     existing_pythonpath = os.environ.get("PYTHONPATH")
     if existing_pythonpath:
         python_path = f"{python_path}{os.pathsep}{existing_pythonpath}"
+    # scripts/render.py lives one directory below the repository root, so we
+    # explicitly expose the root on PYTHONPATH before invoking it.
     command = conda_prefix(env) + [
         "env",
         f"PYTHONPATH={python_path}",
