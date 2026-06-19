@@ -1,0 +1,50 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+.env
+.venv/
+env/
+venv/
+
+# Generated experiment outputs and prepared scenes
+outputs/*
+data/scenes/
+easi-tex/outputs*/
+easi-dyc/outputs*/
+gaussian-mesh-splatting/output/
+
+# Heavy model assets and checkpoints
+*.ckpt
+*.pth
+*.pt
+*.safetensors
+*.deb
+
+# Downloaded model/checkpoint folders
+easi-tex/ip_adapter/image_encoder/
+easi-dyc/ip_adapter/image_encoder/
+easi-tex/ip_adapter/*.bin
+easi-dyc/ip_adapter/*.bin
+easi-tex/models/stable-diffusion-2-inpainting/
+easi-dyc/models/stable-diffusion-2-inpainting/
+easi-tex/models/ControlNet/github_page/
+easi-dyc/models/ControlNet/github_page/
+easi-tex/models/ControlNet/test_imgs/
+easi-dyc/models/ControlNet/test_imgs/
+
+# Large bundled example datasets
+gaussian-mesh-splatting/data/
+
+# LaTeX build products
+paper/*.pdf
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc

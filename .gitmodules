@@ -1,0 +1,9 @@
+[submodule "easi-tex"]
+	path = easi-tex
+	url = https://github.com/sairajk/easi-tex.git
+	ignore = untracked
+
+[submodule "gaussian-mesh-splatting"]
+	path = gaussian-mesh-splatting
+	url = https://github.com/waczjoan/gaussian-mesh-splatting.git
+	ignore = untracked

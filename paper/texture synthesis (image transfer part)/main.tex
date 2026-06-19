@@ -1,0 +1,157 @@
+\documentclass{article}
+\usepackage{graphicx} % Required for inserting images
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{url}
+
+\title{texture synthesis (image transfer part)}
+\author{Yuchen Dou }
+\date{April 2026}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+\section{Related work}
+
+
+\section{Method}
+
+
+\subsection{Semantic correspondence from a Reference image to mesh}
+A central difficulty in reference-guided 3D texturing is finding reliable semantic correspondences between a 2D reference image and the rendered views of an untextured mesh. Following the feature distillation strategy of Diff3F \cite{dutt2024diffusion}, we combine geometry-conditioned diffusion features\cite{rombach2022high} with DINOv2 representations \cite{oquab2023dinov2} to reduce the semantic gap between the reference image and mesh renderings. 
+
+Given a 3D mesh $\mathcal{M}$ and a reference RGB image $I_s \in \mathbb{R}^{H \times W \times 3}$, our goal is to transfer semantically corresponding patches from $I_s$ to the rendered views of $\mathcal{M}$.
+
+Let $\mathcal{M} = (\mathcal{V}, \mathcal{F})$ denote the input 3D mesh, where $\mathcal{V}$ and $\mathcal{F}$ are the sets of vertices and faces, respectively. For each camera viewpoint $c_i$, parameterized by azimuth, elevation, distance, and intrinsic parameters, we render the mesh using a differentiable rasterizer $\mathbb{R}$ to obtain a set of view-dependent maps:
+
+\begin{equation}
+\{I_i^{rgb}, I_i^{depth}, I_i^{normal}, I_i^{edge}\} = R(\mathcal{M}, c_i)
+\end{equation}
+where $I_i^{rgb} \in \mathbb{R}^{H \times W \times 3}$ denotes the shaded RGB image, $I_i^{depth}$ denotes the depth map, $I_i^{normal}$ denotes the normal map, and $I_i^{edge}$ denotes the rendered edge map associated with viewpoint $c_i$.
+For realistically texturing a silhouette image, we follow Diff3F \cite{dutt2024diffusion}:
+\begin{equation}
+f\bigl(\cdot \mid I_i^{depth}, I_i^{normal}, I_i^{edge}, \text{text}\bigr) := I_i^{rgb} \mapsto I^{\mathrm{tex}}_i.
+\end{equation}
+where $f$ is a Stable Diffusion model conditioned by ControlNet \cite{Zhang_2023_ICCV}.
+By extracting features $\mathcal{F}_L^t$ from an intermediate layer $L$ of the U-Net decoder at time step $t$ with $t \in [0, T]$ and applying $\ell_2$ normalization, we accumulate the normalized features from $T/4$ to step $0$ using a weighted aggregation scheme. Specifically,
+\begin{equation}
+F^{\mathrm{Diff}}_i := \sum_{t=0}^{T/4} w_t \cdot F_i^t \in \mathbb{R}^{H \times W \times 1280}.
+\end{equation}
+where the $w_t$ are linearly spaced from 0.1 to 1. We extract DINOv2 features \cite{oquab2023dinov2} from the generated image $I^{\mathrm{tex}}_i$ and normalize these features with $\ell_2$ normalization. The two features are concatenated and $\ell_2$ normalized using the feature fusion strategy proposed in \cite{zhang2023tale}:
+\begin{equation}
+F^{\mathrm{Target}}_i := \left(\alpha F^{\mathrm{Diff}}_i, (1 - \alpha) F^{\mathrm{Dino}}_i\right).
+\end{equation}
+where $\alpha = 0.5$ is a tunable balancing parameter. For the reference image $I_s$, we apply the same process to obtain a source feature representation with the same dimensionality as $F^{\mathrm{Target}}_i$, denoted by $F^{\mathrm{Source}}$.
+
+After obtaining the source feature $F^{\mathrm{Source}}$ and target feature $F^{\mathrm{Target}}_i$, we construct patch-level semantic descriptors for texture transfer. Since background regions are irrelevant to appearance transfer and often degrade correspondence quality, we generate binary mask maps $M_s \in \{0,1\}^{H \times W}$ and $M_i^t \in \{0,1\}^{H \times W}$ for the reference image and the target view, respectively, using \cite{zheng2024birefnet} to separate foreground from background.
+
+Given a feature map reshaped as $F \in \mathbb{R}^{H \times W \times C}$, we use a sliding window to extract patch tensors. For each patch $\Omega_p$, we compute a mask-weighted average descriptor and apply $\ell_2$ normalization. Specifically, for each patch centered at pixel location $x$, we define
+\begin{equation}
+t_p = \mathrm{Norm}\!\left(
+\frac{\sum_{x \in \Omega_p} M(x) F(x)}{\sum_{x \in \Omega_p} M(x) + \epsilon}
+\right).
+\end{equation}
+where $\epsilon$ is added to avoid division by zero.
+
+We discard patches with insufficient foreground coverage. In practice, a patch is retained only when
+\begin{equation}
+\frac{1}{|\Omega_p|} \sum_{x \in \Omega_p} M(x) \ge \tau
+\end{equation}
+where $\tau \in [0,1]$ is a hyperparameter.
+This process yields two patch banks: a source patch bank and a target patch bank. We organize their descriptors as
+\begin{equation}
+\mathbf{T}_s =
+\left[
+t_{p_1^s}^{s};
+\cdots;
+t_{p_{N_s}^s}^{s}
+\right]
+\in \mathbb{R}^{N_s \times C},
+\quad
+\mathbf{T}_i^t =
+\left[
+t_{p_1^t}^{t};
+\cdots;
+t_{p_{N_t}^t}^{t}
+\right]
+\in \mathbb{R}^{N_t \times C}.
+\end{equation}
+To transfer textures from the reference image to the target view, we establish patch-level semantic correspondences by matching each retained target patch to its most similar source patch under cosine similarity. For each target patch descriptor $t_n^t$, we retrieve its closest source patch as
+\begin{equation}
+\pi_i(n)
+=
+\arg\max_{m \in \{1,\ldots,N_s\}}
+\frac{
+\left\langle t_{p_n^t}^{t}, t_{p_m^s}^{s} \right\rangle
+}{
+\left\|t_{p_n^t}^{t}\right\|_2
+\left\|t_{p_m^s}^{s}\right\|_2
+}
+\end{equation}
+where $\pi(n)$ denotes the index of the source patch assigned to the $n$-th target patch.
+We then copy the RGB patch from the matched source image to the corresponding location in the target view according to the semantic correspondence $\pi(n)$, thus obtaining the texture result transferred.
+\subsection{Geometry-aware Diffusion Texture Refinement}
+Although patch transfer establishes explicit semantic correspondences between the reference image and the target view, directly pasted patches can introduce local artifacts, poor adaptation to the target geometry, and visible discontinuities. To alleviate these issues, we further refine the transferred view using a geometry-aware diffusion model, following the idea of EASI-Tex \cite{perla2024easi}. Rather than synthesizing the textured image from pure noise, we initialize an image-to-image diffusion process with the semantic patch-transfer result. This allows the refinement stage to preserve the transferred appearance while improving local coherence and geometric plausibility.
+Given the patch-transferred image $\tilde{I}^{\mathrm{patch}}_i$ for the $i$-th viewpoint, we render a set of geometry-aware control signals from the mesh $\mathcal{M}$. These signals include a depth map $I_i^{\mathrm{depth}}$, a normal map $I_i^{\mathrm{normal}}$, and an edge map $I_i^{\mathrm{edge}}$, defined as
+\begin{equation}
+\{I_i^{\mathrm{depth}}, I_i^{\mathrm{normal}}, I_i^{\mathrm{edge}}\}
+= \mathbb{R}_{\mathrm{geo}}(\mathcal{M}, c_i).
+\end{equation}
+To better preserve the visual style and appearance of the reference image, we condition the diffusion model with IP-Adapter \cite{ye2023ipadapter}. Specifically, the reference image $I_s$ is first encoded by a CLIP\cite{radford2021learning} image encoder $C_{\mathrm{img}}(\cdot)$, and the resulting image feature is then mapped by the projection network $P_{\mathrm{ip}}(\cdot)$ into a set of image tokens:
+\begin{equation}
+f_{\mathrm{tex}} = P_{\mathrm{ip}}\bigl(C_{\mathrm{img}}(I_s)\bigr).
+\end{equation}
+We inject the image tokens into the Stable Diffusion U-Net through an additional cross-attention branch. The resulting attention output is written as
+\begin{equation}
+\mathrm{Attn}_{\mathrm{new}}
+=
+\mathrm{Attn}(Q, K, V)
++
+\lambda_{\mathrm{ip}}
+\mathrm{Attn}(Q, K_{\mathrm{tex}}, V_{\mathrm{tex}}),
+\end{equation}
+where $K_{\mathrm{tex}}$ and $V_{\mathrm{tex}}$ are the key and value features derived from the reference-image prompt, respectively. The scalar $\lambda_{\mathrm{ip}}$ controls the strength of this image-conditioned branch, while the query $Q$ is shared with the original text cross-attention layer.
+We use ControlNet \cite{Zhang_2023_ICCV} to inject spatial conditioning signals, such as depth, edge, and normal maps, into the pre-trained Stable Diffusion U-Net. The ControlNet residual is added to the original U-Net feature as
+\begin{equation}
+F'_{\mathrm{un}} = F_{\mathrm{un}} + \lambda_{\mathrm{cn}} F_{\mathrm{cn}},
+\end{equation}
+where $F_{\mathrm{un}}$ is the original U-Net feature, $F_{\mathrm{cn}}$ is the ControlNet residual feature, and $\lambda_{\mathrm{cn}}$ is a hyperparameter that controls the strength of the spatial conditioning.
+Finally, we obtain the refined target view $I_i^{\mathrm{refine}}$ using the Stable Diffusion v1.5 with IP-Adapter and ControlNet, denoted by $\mathcal{D}_{\theta}(\cdot)$. The denoising process is conditioned on the patch-transferred initialization $\tilde{I}^{\mathrm{patch}}_i$, the rendered geometry controls $I_i^{\mathrm{depth}}$, $I_i^{\mathrm{normal}}$, and $I_i^{\mathrm{edge}}$, the text prompt feature $f_i^{\mathrm{txt}}$, and the reference-image token $f_{\mathrm{tex}}$:
+\begin{equation}
+I_i^{\mathrm{refine}}
+=
+\mathcal{D}_{\theta}\left(
+\tilde{I}^{\mathrm{patch}}_i
+\mid
+I_i^{\mathrm{depth}},
+I_i^{\mathrm{normal}},
+I_i^{\mathrm{edge}},
+f_i^{\mathrm{txt}},
+f_{\mathrm{tex}}
+\right).
+\end{equation}
+\subsection{Texturing Meshes with Reference Attention}
+To further improve appearance consistency between the generated texture and the reference image, we introduce a reference-attention mechanism inspired by\cite{zhang2023referenceonly,chen2025meshgen} We first encode the reference image $I_s$ into the latent space of the diffusion model using the VAE encoder. At each denoising timestep, the reference latent is perturbed according to the same noise schedule as the target latent, and then passed through the U-Net to extract reference token features from its self-attention layers. When synthesizing the texture for the $i$-th viewpoint, we concatenate these reference states with the key-value context of each self-attention layer $l$:
+\begin{equation}
+\mathrm{Attn}_{\mathrm{ref}}^l
+=
+\mathrm{Attn}
+\left(
+Q_i^l,
+\left[K_i^l; K_{\mathrm{ref}}^l\right],
+\left[V_i^l; V_{\mathrm{ref}}^l\right]
+\right).
+\end{equation}
+By bringing the reference tokens into the self-attention context, the generation process better follows the reference image in color, material cues, recurring texture details, and overall visual identity. Building on this design, we adopt a rendering-and-projection strategy similar to prior texture-mapping pipelines \cite{chen2022auv,perla2024easi}. The method iteratively synthesizes view-dependent texture updates and projects the generated appearance back onto the surface of the 3D mesh.
+\input{"../Gaussian splatting part.tex"}
+\section{Experiments}
+
+\section{Conclusion}
+
+\bibliographystyle{plain}
+\bibliography{references,../gs_references}
+
+\end{document}
