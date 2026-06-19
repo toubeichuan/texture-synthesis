@@ -225,6 +225,61 @@ The mesh-guided Gaussian model then learns a representation aligned with the tex
 - novel-view rendering from edited camera poses;
 - downstream mesh-level editing because Gaussian centers and covariances remain tied to mesh faces.
 
+## Project-level Pipeline Runner
+
+This repository includes a lightweight runner that connects an EASI-DYC texture output folder to GaMeS training. The runner does not import either heavy codebase directly; it launches each stage as a subprocess so the texture and Gaussian stages can keep their own conda environments.
+
+The example config is:
+
+```bash
+configs/pipeline/cat_more_face.json
+```
+
+Prepare a GaMeS scene from an existing texture synthesis output:
+
+```bash
+python scripts/run_pipeline.py \
+  --config configs/pipeline/cat_more_face.json \
+  --stage prepare_gs
+```
+
+This writes:
+
+```text
+data/scenes/cat_more_face_pipeline/
+├── mesh.obj
+├── 19_post.mtl
+├── 19_post.png
+├── train/
+├── transforms_train.json
+├── transforms_test.json
+├── transforms_val.json
+└── prepare_gs_scene_manifest.json
+```
+
+Run a quick Gaussian smoke test:
+
+```bash
+python scripts/run_pipeline.py \
+  --config configs/pipeline/cat_more_face.json \
+  --stage train_gs \
+  --train-iterations 5
+
+python scripts/run_pipeline.py \
+  --config configs/pipeline/cat_more_face.json \
+  --stage render_gs
+```
+
+For a full run, omit `--train-iterations` and use the `gaussian.iterations` value in the config:
+
+```bash
+python scripts/run_pipeline.py \
+  --config configs/pipeline/cat_more_face.json \
+  --stage train_gs
+```
+
+The current example texture output uses a locked camera, so all selected supervision images share the same camera pose. This is useful for checking the full code path, but stronger novel-view training should use multi-view EASI-DYC outputs or an edited `viewpoints.json` with distinct camera poses.
+
 ## Paper Files
 
 The writing materials are under `paper/`.
