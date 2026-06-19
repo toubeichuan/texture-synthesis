@@ -18,6 +18,7 @@ from a lightweight Python environment before the heavy training stage.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import os
@@ -46,7 +47,27 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-images", type=int, default=0, help="Optional maximum number of images to copy.")
     parser.add_argument("--viewpoints", default="viewpoints.json", help="Viewpoints/camera JSON relative to texture output.")
-    parser.add_argument("--camera-angle-x", type=float, required=True, help="Horizontal field of view in radians.")
+    parser.add_argument(
+        "--train-transforms",
+        default="",
+        help="Existing transforms_train.json to use for training cameras. File paths are rewritten to ./train/<index>.",
+    )
+    parser.add_argument(
+        "--test-transforms",
+        default="",
+        help="Optional existing transforms JSON to use for test cameras. File paths are rewritten to ./train/<index>.",
+    )
+    parser.add_argument(
+        "--val-transforms",
+        default="",
+        help="Optional existing transforms JSON to use for validation cameras. File paths are rewritten to ./train/<index>.",
+    )
+    parser.add_argument(
+        "--camera-angle-x",
+        type=float,
+        default=None,
+        help="Horizontal field of view in radians. Overrides the value in an existing transforms file.",
+    )
     parser.add_argument("--rotate-x-deg", type=float, default=90.0, help="World X rotation applied to c2w before writing transforms.")
     parser.add_argument("--rotate-y-deg", type=float, default=0.0, help="World Y rotation applied to c2w before writing transforms.")
     parser.add_argument("--rotate-z-deg", type=float, default=0.0, help="World Z rotation applied to c2w before writing transforms.")
@@ -335,6 +356,28 @@ def make_transforms(
     return {"camera_angle_x": camera_angle_x, "frames": frames}
 
 
+def rewrite_transforms(
+    transforms: Dict[str, Any],
+    num_frames: int,
+    file_prefix: str,
+    camera_angle_x: Optional[float],
+) -> Dict[str, Any]:
+    source_frames = transforms.get("frames", [])
+    if len(source_frames) < num_frames:
+        raise ValueError(f"transforms file has {len(source_frames)} frames, but {num_frames} images were selected")
+
+    out_frames = []
+    for index, source_frame in enumerate(source_frames[:num_frames]):
+        frame = copy.deepcopy(source_frame)
+        frame["file_path"] = f"{file_prefix.rstrip('/')}/{index}"
+        out_frames.append(frame)
+
+    fov = camera_angle_x if camera_angle_x is not None else transforms.get("camera_angle_x")
+    if fov is None:
+        raise ValueError("camera_angle_x must be provided when the transforms file does not contain camera_angle_x")
+    return {"camera_angle_x": float(fov), "frames": out_frames}
+
+
 def count_unique_camera_poses(transforms: Dict[str, Any], precision: int = 8) -> int:
     signatures = set()
     for frame in transforms["frames"]:
@@ -357,16 +400,60 @@ def write_scene(args: argparse.Namespace) -> Dict[str, Any]:
     texture_output = resolve_path(args.texture_output)
     scene_dir = resolve_path(args.scene_dir)
     image_dir = resolve_path(args.image_dir, texture_output)
-    viewpoints_path = resolve_path(args.viewpoints, texture_output)
 
     images = list_supervision_images(image_dir, args.image_pattern, args.image_filter, args.max_images)
     mesh_source = find_mesh(texture_output, args.mesh_source)
-    viewpoints = load_json(viewpoints_path)
-    views = expand_easi_viewpoints(viewpoints, len(images), args.target)
-    rotation = pose_rotation(args.rotate_x_deg, args.rotate_y_deg, args.rotate_z_deg)
 
-    train_transforms = make_transforms(views, args.camera_angle_x, "./train", rotation)
-    test_transforms = train_transforms if args.test_mode == "copy-train" else {"camera_angle_x": args.camera_angle_x, "frames": []}
+    if args.train_transforms:
+        train_transforms_path = resolve_path(args.train_transforms)
+        train_transforms = rewrite_transforms(
+            load_json(train_transforms_path),
+            len(images),
+            "./train",
+            args.camera_angle_x,
+        )
+        camera_metadata: Dict[str, Any] = {
+            "source": "transforms",
+            "train_transforms": str(train_transforms_path),
+        }
+    else:
+        if args.camera_angle_x is None:
+            raise ValueError("--camera-angle-x is required when cameras are built from viewpoints.json")
+        viewpoints_path = resolve_path(args.viewpoints, texture_output)
+        viewpoints = load_json(viewpoints_path)
+        views = expand_easi_viewpoints(viewpoints, len(images), args.target)
+        rotation = pose_rotation(args.rotate_x_deg, args.rotate_y_deg, args.rotate_z_deg)
+        train_transforms = make_transforms(views, args.camera_angle_x, "./train", rotation)
+        camera_metadata = {
+            "source": "viewpoints",
+            "viewpoints": str(viewpoints_path),
+            "views": views,
+        }
+
+    if args.test_transforms:
+        test_transforms_path = resolve_path(args.test_transforms)
+        test_transforms = rewrite_transforms(
+            load_json(test_transforms_path),
+            len(images),
+            "./train",
+            args.camera_angle_x,
+        )
+    elif args.test_mode == "copy-train":
+        test_transforms = copy.deepcopy(train_transforms)
+    else:
+        test_transforms = {"camera_angle_x": train_transforms["camera_angle_x"], "frames": []}
+
+    if args.val_transforms:
+        val_transforms_path = resolve_path(args.val_transforms)
+        val_transforms = rewrite_transforms(
+            load_json(val_transforms_path),
+            len(images),
+            "./train",
+            args.camera_angle_x,
+        )
+    else:
+        val_transforms = copy.deepcopy(test_transforms)
+
     unique_camera_poses = count_unique_camera_poses(train_transforms)
     if len(images) > 1 and unique_camera_poses < len(images) and not args.allow_repeat_cameras:
         raise ValueError(
@@ -386,7 +473,10 @@ def write_scene(args: argparse.Namespace) -> Dict[str, Any]:
         "first_image": str(images[0]),
         "last_image": str(images[-1]),
         "unique_camera_poses": unique_camera_poses,
-        "camera_angle_x": args.camera_angle_x,
+        "camera_angle_x": train_transforms["camera_angle_x"],
+        "camera_source": camera_metadata["source"],
+        "train_transforms_source": camera_metadata.get("train_transforms", ""),
+        "pose_rotation_applied": camera_metadata["source"] == "viewpoints",
         "rotate_xyz_deg": [args.rotate_x_deg, args.rotate_y_deg, args.rotate_z_deg],
         "test_mode": args.test_mode,
     }
@@ -406,8 +496,8 @@ def write_scene(args: argparse.Namespace) -> Dict[str, Any]:
 
     dump_json(scene_dir / "transforms_train.json", train_transforms)
     dump_json(scene_dir / "transforms_test.json", test_transforms)
-    dump_json(scene_dir / "transforms_val.json", test_transforms)
-    dump_json(scene_dir / "camera_poses.json", {"views": views})
+    dump_json(scene_dir / "transforms_val.json", val_transforms)
+    dump_json(scene_dir / "camera_poses.json", camera_metadata)
 
     if args.copy_metadata:
         for name in ("args.json", "viewpoints.json"):
@@ -416,6 +506,8 @@ def write_scene(args: argparse.Namespace) -> Dict[str, Any]:
                 shutil.copy2(source, scene_dir / name)
 
     assert_transforms_paths(scene_dir, train_transforms)
+    assert_transforms_paths(scene_dir, test_transforms)
+    assert_transforms_paths(scene_dir, val_transforms)
 
     manifest = {**plan, "copied_mesh_files": copied_mesh, "train_dir": str(train_dir)}
     dump_json(scene_dir / "prepare_gs_scene_manifest.json", manifest)

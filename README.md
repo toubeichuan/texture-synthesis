@@ -278,8 +278,28 @@ python scripts/run_pipeline.py \
   --stage train_gs
 ```
 
-The current example texture output uses a locked camera, so all selected supervision images share the same camera pose. This is useful for checking the full code path, but stronger novel-view training should use multi-view EASI-DYC outputs or an edited `viewpoints.json` with distinct camera poses.
-For this reason, the example config limits the locked-view output to `max_images: 1`. If a config selects multiple images but they resolve to the same camera pose, the preparation script stops with an error unless `allow_repeat_cameras` is explicitly enabled for a deliberate smoke test.
+The runner exposes common experiment controls as command-line overrides, so a JSON config can be reused across several camera/image settings. For example, use ten synthesized views from `generate/inpainted` and an existing ten-camera transform file:
+
+```bash
+python scripts/run_pipeline.py \
+  --config configs/pipeline/cat_more_face.json \
+  --stage all \
+  --image-dir generate/inpainted \
+  --max-images 10 \
+  --train-transforms data/scenes/cat_more_face/transforms_train.json \
+  --model-path outputs/gaussian_splatting/cat_more_face_generate10 \
+  --train-iterations 5
+```
+
+Useful overrides include:
+
+- `--image-dir`, `--image-pattern`, `--image-filter`, `--max-images`: choose which synthesized images become GS supervision.
+- `--train-transforms`, `--test-transforms`: choose explicit camera files instead of relying on the texture output's `viewpoints.json`.
+- `--scene-dir`, `--model-path`: choose the prepared dataset folder and GS output folder.
+- `--num-splats`, `--train-iterations`, `--gs-type`, `--white-background`, `--black-background`: control GaMeS training.
+- `--render-iteration`, `--skip-train-render`, `--skip-test-render`: control rendering.
+
+If multiple selected images resolve to repeated camera poses, scene preparation stops unless `--allow-repeat-cameras` is set. This catches the common mistake of treating update-step images from a locked camera as multi-view supervision.
 
 ## Paper Files
 
