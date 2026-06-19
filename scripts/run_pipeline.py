@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Project-level pipeline runner.
+"""Project-level pipeline runner. / 项目级流水线运行器。
 
-This runner orchestrates the research pipeline without importing the heavy
-texture-synthesis or Gaussian Splatting packages. Each stage is executed as a
-subprocess so different conda environments can be used safely.
+English:
+    This runner orchestrates the research pipeline without importing the heavy
+    texture-synthesis or Gaussian Splatting packages. Each stage is executed as
+    a subprocess so different conda environments can be used safely.
+
+中文：
+    这个脚本负责串联整个研究流程，但不会直接 import 纹理生成或 Gaussian
+    Splatting 的重依赖代码。每个阶段都通过 subprocess 调用，因此不同阶段
+    可以安全地使用各自的 conda 环境。
 """
 
 from __future__ import annotations
@@ -95,8 +101,10 @@ def apply_cli_overrides(config: Dict[str, Any], args: argparse.Namespace) -> Non
     prepare = config.setdefault("prepare_gs", {})
     gaussian = config.setdefault("gaussian", {})
 
-    # The JSON file holds reproducible defaults. CLI overrides are for the
-    # last-mile experiment knobs that change frequently while iterating.
+    # EN: The JSON file holds reproducible defaults. CLI overrides are for the
+    #     last-mile experiment knobs that change frequently while iterating.
+    # CN: JSON 配置保存可复现实验的默认值；命令行参数用于快速覆盖那些
+    #     经常变化的实验选项，例如图像目录、相机数量、输出路径等。
     prepare_overrides = {
         "texture_output": args.texture_output,
         "scene_dir": args.scene_dir,
@@ -143,8 +151,10 @@ def apply_cli_overrides(config: Dict[str, Any], args: argparse.Namespace) -> Non
     if args.skip_test_render:
         gaussian["skip_test_render"] = True
 
-    # A run name gives every experiment its own prepared scene and output
-    # folder, so smoke tests and full runs do not overwrite each other.
+    # EN: A run name gives every experiment its own prepared scene and output
+    #     folder, so smoke tests and full runs do not overwrite each other.
+    # CN: run_name 会同时生成独立的 scene 目录和 GS 输出目录，避免 smoke
+    #     test、正式训练、多组参数实验之间互相覆盖。
     if args.run_name:
         scene_dir = str(Path(args.scene_root) / args.run_name)
         model_path = str(Path(args.gaussian_output_root) / args.run_name)
@@ -186,8 +196,10 @@ def run_texture(config: Dict[str, Any], dry_run: bool) -> None:
 
 def run_prepare_gs(config: Dict[str, Any], dry_run: bool) -> None:
     prepare = config["prepare_gs"]
-    # This stage only prepares a lightweight NeRF/GaMeS-style dataset:
-    # mesh.obj, train/*.png, and transforms_*.json. It does not train GS.
+    # EN: This stage only prepares a lightweight NeRF/GaMeS-style dataset:
+    #     mesh.obj, train/*.png, and transforms_*.json. It does not train GS.
+    # CN: 这一阶段只准备 GaMeS/NeRF 风格的数据目录，包括 mesh.obj、
+    #     train/*.png 和 transforms_*.json；它不会启动 Gaussian 训练。
     command = [
         sys.executable,
         str(PROJECT_ROOT / "scripts/dataset/prepare_gs_scene.py"),
@@ -239,8 +251,10 @@ def run_train_gs(config: Dict[str, Any], dry_run: bool) -> None:
     gaussian = config["gaussian"]
     repo = resolve(gaussian.get("repo", "gaussian-mesh-splatting"))
     env = gaussian.get("env", "gaussian_splatting_mesh")
-    # GaMeS expects to be launched from its own repository because it imports
-    # local modules such as scene, games, and renderer.
+    # EN: GaMeS expects to be launched from its own repository because it imports
+    #     local modules such as scene, games, and renderer.
+    # CN: GaMeS 的 train.py 依赖仓库内的 scene、games、renderer 等本地模块，
+    #     因此这里必须把工作目录切到 gaussian-mesh-splatting 仓库。
     command = conda_prefix(env) + [
         "python",
         "train.py",
@@ -269,8 +283,10 @@ def run_render_gs(config: Dict[str, Any], dry_run: bool) -> None:
     existing_pythonpath = os.environ.get("PYTHONPATH")
     if existing_pythonpath:
         python_path = f"{python_path}{os.pathsep}{existing_pythonpath}"
-    # scripts/render.py lives one directory below the repository root, so we
-    # explicitly expose the root on PYTHONPATH before invoking it.
+    # EN: scripts/render.py lives one directory below the repository root, so we
+    #     explicitly expose the root on PYTHONPATH before invoking it.
+    # CN: render.py 位于 scripts/ 子目录中，直接运行时可能找不到仓库根目录下的
+    #     scene 模块；这里显式设置 PYTHONPATH，保证本地模块可导入。
     command = conda_prefix(env) + [
         "env",
         f"PYTHONPATH={python_path}",
