@@ -24,6 +24,7 @@ import math
 import os
 import re
 import shutil
+from collections import deque
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -46,6 +47,50 @@ def parse_args() -> argparse.Namespace:
         help="numeric keeps files whose stem is an integer, e.g. 0.png, 1.png.",
     )
     parser.add_argument("--max-images", type=int, default=0, help="Optional maximum number of images to copy.")
+    parser.add_argument(
+        "--edge-mask-dir",
+        default="",
+        help="Optional edge-mask directory relative to texture output, e.g. generate/edges. Matching white edge pixels are removed from copied supervision images.",
+    )
+    parser.add_argument("--edge-mask-threshold", type=int, default=16, help="Edge mask threshold in [0, 255].")
+    parser.add_argument("--edge-mask-dilate", type=int, default=1, help="Pixel radius used to dilate the edge mask before cleaning.")
+    parser.add_argument(
+        "--edge-clean-strategy",
+        choices=["line", "fill"],
+        default="line",
+        help="line cleans only edge pixels; fill recovers a foreground mask from the edge contour and cleans outside it.",
+    )
+    parser.add_argument(
+        "--edge-fill-erode",
+        type=int,
+        default=0,
+        help="Pixel radius used to erode the filled foreground mask before compositing. Useful for removing white halos.",
+    )
+    parser.add_argument(
+        "--edge-clean-white-threshold",
+        type=int,
+        default=230,
+        help="Only clean edge pixels whose RGB channels are all at least this value. Use 0 to disable this constraint.",
+    )
+    parser.add_argument(
+        "--edge-component-mode",
+        choices=["all", "largest"],
+        default="all",
+        help="Use all edge pixels or only the largest connected edge component.",
+    )
+    parser.add_argument(
+        "--edge-clean-mode",
+        choices=["background", "transparent"],
+        default="background",
+        help="How to clean edge-mask pixels in supervision images.",
+    )
+    parser.add_argument(
+        "--background-color",
+        type=int,
+        nargs=3,
+        default=[255, 255, 255],
+        help="RGB color used when --edge-clean-mode=background.",
+    )
     parser.add_argument("--viewpoints", default="viewpoints.json", help="Viewpoints/camera JSON relative to texture output.")
     parser.add_argument(
         "--train-transforms",
@@ -209,6 +254,165 @@ def copy_mesh_bundle(mesh_source: Path, scene_dir: Path, dry_run: bool) -> List[
                     copied.append(source_tex.name)
 
     return copied
+
+
+def find_matching_edge_mask(edge_mask_dir: Path, source_image: Path) -> Path:
+    candidates = [
+        edge_mask_dir / f"{source_image.stem}.png",
+        edge_mask_dir / source_image.name,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(f"edge mask not found for {source_image.name} under {edge_mask_dir}")
+
+
+def keep_largest_connected_component(mask: Any) -> Any:
+    import numpy as np
+
+    visited = np.zeros(mask.shape, dtype=bool)
+    best_component: List[Tuple[int, int]] = []
+    height, width = mask.shape
+    ys, xs = np.nonzero(mask)
+
+    for start_y, start_x in zip(ys.tolist(), xs.tolist()):
+        if visited[start_y, start_x]:
+            continue
+        stack = [(start_y, start_x)]
+        visited[start_y, start_x] = True
+        component: List[Tuple[int, int]] = []
+
+        while stack:
+            y, x = stack.pop()
+            component.append((y, x))
+            for ny in range(max(0, y - 1), min(height, y + 2)):
+                for nx in range(max(0, x - 1), min(width, x + 2)):
+                    if not visited[ny, nx] and mask[ny, nx]:
+                        visited[ny, nx] = True
+                        stack.append((ny, nx))
+
+        if len(component) > len(best_component):
+            best_component = component
+
+    out = np.zeros(mask.shape, dtype=bool)
+    if best_component:
+        comp_y, comp_x = zip(*best_component)
+        out[list(comp_y), list(comp_x)] = True
+    return out
+
+
+def foreground_from_edge_mask(edge_mask: Any) -> Any:
+    import numpy as np
+
+    height, width = edge_mask.shape
+    outside = np.zeros((height, width), dtype=bool)
+    queue: deque[Tuple[int, int]] = deque()
+
+    def push(y: int, x: int) -> None:
+        if not outside[y, x] and not edge_mask[y, x]:
+            outside[y, x] = True
+            queue.append((y, x))
+
+    # EN: Flood-fill the image border through non-edge pixels. The remaining
+    #     non-outside region is treated as the foreground enclosed by the edge.
+    # CN: 从图像边界开始在非边缘像素上泛洪填充；没有连到外部的区域
+    #     就是由白色描边围住的前景。
+    for x in range(width):
+        push(0, x)
+        push(height - 1, x)
+    for y in range(height):
+        push(y, 0)
+        push(y, width - 1)
+
+    while queue:
+        y, x = queue.popleft()
+        for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+            if 0 <= ny < height and 0 <= nx < width:
+                push(ny, nx)
+
+    return ~outside
+
+
+def copy_or_clean_image(
+    source_image: Path,
+    output_image: Path,
+    edge_mask_dir: Optional[Path],
+    edge_mask_threshold: int,
+    edge_mask_dilate: int,
+    edge_clean_strategy: str,
+    edge_fill_erode: int,
+    edge_clean_white_threshold: int,
+    edge_component_mode: str,
+    edge_clean_mode: str,
+    background_color: Sequence[int],
+) -> Optional[Path]:
+    if edge_mask_dir is None:
+        shutil.copy2(source_image, output_image)
+        return None
+
+    try:
+        from PIL import Image, ImageFilter
+    except ImportError as exc:
+        raise ImportError(
+            "Pillow is required when --edge-mask-dir is used. Run prepare_gs in an environment that has Pillow, "
+            "for example the shared env=texture-synthesis configuration."
+        ) from exc
+
+    edge_mask = find_matching_edge_mask(edge_mask_dir, source_image)
+    image = Image.open(source_image).convert("RGBA")
+    edge = Image.open(edge_mask).convert("L")
+    if image.size != edge.size:
+        raise ValueError(f"image and edge mask sizes differ: {source_image} vs {edge_mask}")
+
+    binary = edge.point(lambda value: 255 if value >= edge_mask_threshold else 0, mode="L")
+    if edge_component_mode == "largest":
+        try:
+            import numpy as np
+        except ImportError as exc:
+            raise ImportError(
+                "NumPy is required when --edge-component-mode=largest. Run prepare_gs in an environment that has NumPy, "
+                "for example the shared env=texture-synthesis configuration."
+            ) from exc
+        binary_np = keep_largest_connected_component(np.array(binary) > 0)
+        binary = Image.fromarray((binary_np.astype("uint8") * 255), mode="L")
+    if edge_mask_dilate > 0:
+        binary = binary.filter(ImageFilter.MaxFilter(edge_mask_dilate * 2 + 1))
+
+    if edge_clean_strategy == "fill":
+        try:
+            import numpy as np
+        except ImportError as exc:
+            raise ImportError(
+                "NumPy is required when --edge-clean-strategy=fill. Run prepare_gs in an environment that has NumPy, "
+                "for example the shared env=texture-synthesis configuration."
+            ) from exc
+        foreground = foreground_from_edge_mask(np.array(binary) > 0)
+        foreground_mask = Image.fromarray((foreground.astype("uint8") * 255), mode="L")
+        if edge_fill_erode > 0:
+            foreground_mask = foreground_mask.filter(ImageFilter.MinFilter(edge_fill_erode * 2 + 1))
+        binary = Image.eval(foreground_mask, lambda value: 0 if value else 255)
+    elif edge_clean_white_threshold > 0:
+        try:
+            import numpy as np
+        except ImportError as exc:
+            raise ImportError(
+                "NumPy is required when --edge-clean-white-threshold is positive. Run prepare_gs in an environment that has NumPy, "
+                "for example the shared env=texture-synthesis configuration."
+            ) from exc
+        image_rgb = np.array(image.convert("RGB"))
+        edge_np = np.array(binary) > 0
+        white_np = np.all(image_rgb >= edge_clean_white_threshold, axis=-1)
+        binary = Image.fromarray(((edge_np & white_np).astype("uint8") * 255), mode="L")
+
+    if edge_clean_mode == "transparent":
+        cleaned = image.copy()
+        cleaned.putalpha(Image.eval(binary, lambda value: 0 if value else 255))
+    else:
+        background = Image.new("RGBA", image.size, tuple(int(v) for v in background_color) + (255,))
+        cleaned = Image.composite(background, image, binary)
+
+    cleaned.save(output_image)
+    return edge_mask
 
 
 def dot(a: Sequence[float], b: Sequence[float]) -> float:
@@ -400,6 +604,9 @@ def write_scene(args: argparse.Namespace) -> Dict[str, Any]:
     texture_output = resolve_path(args.texture_output)
     scene_dir = resolve_path(args.scene_dir)
     image_dir = resolve_path(args.image_dir, texture_output)
+    edge_mask_dir = resolve_path(args.edge_mask_dir, texture_output) if args.edge_mask_dir else None
+    if edge_mask_dir is not None and not edge_mask_dir.is_dir():
+        raise FileNotFoundError(f"edge mask directory not found: {edge_mask_dir}")
 
     images = list_supervision_images(image_dir, args.image_pattern, args.image_filter, args.max_images)
     mesh_source = find_mesh(texture_output, args.mesh_source)
@@ -472,6 +679,13 @@ def write_scene(args: argparse.Namespace) -> Dict[str, Any]:
         "num_images": len(images),
         "first_image": str(images[0]),
         "last_image": str(images[-1]),
+        "edge_mask_dir": str(edge_mask_dir) if edge_mask_dir else "",
+        "edge_clean_strategy": args.edge_clean_strategy if edge_mask_dir else "",
+        "edge_fill_erode": args.edge_fill_erode if edge_mask_dir else 0,
+        "edge_clean_mode": args.edge_clean_mode if edge_mask_dir else "",
+        "edge_component_mode": args.edge_component_mode if edge_mask_dir else "",
+        "edge_clean_white_threshold": args.edge_clean_white_threshold if edge_mask_dir else 0,
+        "edge_mask_dilate": args.edge_mask_dilate if edge_mask_dir else 0,
         "unique_camera_poses": unique_camera_poses,
         "camera_angle_x": train_transforms["camera_angle_x"],
         "camera_source": camera_metadata["source"],
@@ -491,8 +705,23 @@ def write_scene(args: argparse.Namespace) -> Dict[str, Any]:
     train_dir.mkdir(parents=True, exist_ok=True)
 
     copied_mesh = copy_mesh_bundle(mesh_source, scene_dir, args.dry_run)
+    used_edge_masks: List[str] = []
     for out_idx, source_image in enumerate(images):
-        shutil.copy2(source_image, train_dir / f"{out_idx}.png")
+        edge_mask = copy_or_clean_image(
+            source_image=source_image,
+            output_image=train_dir / f"{out_idx}.png",
+            edge_mask_dir=edge_mask_dir,
+            edge_mask_threshold=args.edge_mask_threshold,
+            edge_mask_dilate=args.edge_mask_dilate,
+            edge_clean_strategy=args.edge_clean_strategy,
+            edge_fill_erode=args.edge_fill_erode,
+            edge_clean_white_threshold=args.edge_clean_white_threshold,
+            edge_component_mode=args.edge_component_mode,
+            edge_clean_mode=args.edge_clean_mode,
+            background_color=args.background_color,
+        )
+        if edge_mask is not None:
+            used_edge_masks.append(str(edge_mask))
 
     dump_json(scene_dir / "transforms_train.json", train_transforms)
     dump_json(scene_dir / "transforms_test.json", test_transforms)
@@ -509,7 +738,7 @@ def write_scene(args: argparse.Namespace) -> Dict[str, Any]:
     assert_transforms_paths(scene_dir, test_transforms)
     assert_transforms_paths(scene_dir, val_transforms)
 
-    manifest = {**plan, "copied_mesh_files": copied_mesh, "train_dir": str(train_dir)}
+    manifest = {**plan, "copied_mesh_files": copied_mesh, "used_edge_masks": used_edge_masks, "train_dir": str(train_dir)}
     dump_json(scene_dir / "prepare_gs_scene_manifest.json", manifest)
     return manifest
 

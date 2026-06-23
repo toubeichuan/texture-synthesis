@@ -71,7 +71,7 @@ def filter_viewpoints(pre_viewpoints: dict, viewpoints: dict):
 
 
 def init_viewpoints(mode, sample_space, init_dist, init_elev, principle_directions, 
-    use_principle=True, use_shapenet=False, use_objaverse=False):
+    use_principle=True, use_shapenet=False, use_objaverse=False, principle_preset=None):
 
     if mode == "predefined":
 
@@ -113,7 +113,8 @@ def init_viewpoints(mode, sample_space, init_dist, init_elev, principle_directio
             sector_list,
             view_punishments,
             use_shapenet,
-            use_objaverse
+            use_objaverse,
+            principle_preset,
         )
 
     return dist_list, elev_list, azim_list, sector_list, view_punishments
@@ -127,29 +128,25 @@ def init_principle_viewpoints(
     sector_list,
     view_punishments,
     use_shapenet=False,
-    use_objaverse=False
+    use_objaverse=False,
+    principle_preset=None,
 ):
 
-    if use_shapenet:
+    if principle_preset:
+        if principle_preset not in VIEWPOINTS:
+            raise KeyError("unknown principle camera preset: {}".format(principle_preset))
+        key = principle_preset
+    elif use_shapenet:
         key = "shapenet"
-
-        pre_elev_list = [v for v in VIEWPOINTS[key]["elev"]]
-        pre_azim_list = [v for v in VIEWPOINTS[key]["azim"]]
-        pre_sector_list = [v for v in VIEWPOINTS[key]["sector"]]
-
-        # 动态获取shapenet视角数量
-        num_principle = len(VIEWPOINTS[key]["sector"])
-        pre_dist_list = [dist_list[0] for _ in range(num_principle)]
-        pre_view_punishments = [0 for _ in range(num_principle)]
-
     elif use_objaverse:
         key = "objaverse"
+    else:
+        key = None
 
+    if key is not None:
         pre_elev_list = [v for v in VIEWPOINTS[key]["elev"]]
         pre_azim_list = [v for v in VIEWPOINTS[key]["azim"]]
         pre_sector_list = [v for v in VIEWPOINTS[key]["sector"]]
-
-        # 动态获取objaverse视角数量（现在是72个）
         num_principle = len(VIEWPOINTS[key]["sector"])
         pre_dist_list = [dist_list[0] for _ in range(num_principle)]
         pre_view_punishments = [0 for _ in range(num_principle)]

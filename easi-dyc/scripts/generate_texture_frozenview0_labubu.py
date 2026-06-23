@@ -165,6 +165,12 @@ def _get_apply_controlnet_optional_kwargs(reference_image=None):
 def _get_camera_preset(args):
     if args.use_shapenet and args.use_objaverse:
         raise ValueError("`--use_shapenet` 和 `--use_objaverse` 不能同时开启。")
+    if args.camera_preset:
+        if args.use_shapenet or args.use_objaverse:
+            raise ValueError("`--camera_preset` 不能和旧的相机开关同时使用。")
+        if args.camera_preset not in VIEWPOINTS:
+            raise KeyError("unknown camera preset: {}".format(args.camera_preset))
+        return args.camera_preset
     if args.use_objaverse:
         return "objaverse"
     if args.use_shapenet:
@@ -256,6 +262,12 @@ def init_args():
     parser.add_argument("--use_principle", action="store_true", help="poperate on multiple objects")
     parser.add_argument("--use_shapenet", action="store_true", help="operate on ShapeNet objects")
     parser.add_argument("--use_objaverse", action="store_true", help="operate on Objaverse objects")
+    parser.add_argument(
+        "--camera_preset",
+        type=str,
+        default="",
+        help="Named VIEWPOINTS preset, for example shapenet, labubu18, or objaverse.",
+    )
     parser.add_argument("--use_unnormalized", action="store_true", help="save unnormalized mesh")
 
     parser.add_argument("--add_view_to_prompt", action="store_true", help="add view information to the prompt")
@@ -382,7 +394,8 @@ if __name__ == "__main__":
     ) = init_viewpoints(args.viewpoint_mode, args.num_viewpoints, args.dist, args.elev, principle_directions, 
                             use_principle=True, 
                             use_shapenet=args.use_shapenet,
-                            use_objaverse=args.use_objaverse)
+                            use_objaverse=args.use_objaverse,
+                            principle_preset=camera_preset)
 
     # save args
     save_args(args, output_dir)

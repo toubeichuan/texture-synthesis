@@ -1,0 +1,36 @@
+name: texture-synthesis
+channels:
+  - pytorch
+  - nvidia
+  - pytorch3d
+  - xformers
+  - fvcore
+  - iopath
+  - bottler
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pytorch::pytorch=2.0.1
+  - pytorch::torchvision=0.15.2
+  - pytorch::torchaudio=2.0.2
+  - pytorch-cuda=11.8
+  - numpy=1.23.5
+  - scipy
+  - pillow
+  - plyfile=0.8.1
+  - trimesh
+  - tqdm
+  - fvcore
+  - iopath
+  - nvidiacub
+  - ninja
+  - pytorch3d
+  - xformers
+  - chumpy=0.70
+  - pip:
+      - -r easi-tex/requirements.txt
+      - smplx==0.1.28
+      - open3d==0.17.0
+      - tensorboard==2.14.0

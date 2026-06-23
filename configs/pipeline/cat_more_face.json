@@ -1,7 +1,7 @@
 {
+  "env": "texture-synthesis",
   "scene_name": "cat_more_face_generate10",
   "texture": {
-    "env": "easitex",
     "cwd": "easi-dyc",
     "command": []
   },
@@ -13,6 +13,14 @@
     "image_pattern": "*.png",
     "image_filter": "numeric",
     "max_images": 10,
+    "edge_mask_dir": "generate/edges",
+    "edge_mask_threshold": 16,
+    "edge_mask_dilate": 2,
+    "edge_clean_strategy": "fill",
+    "edge_fill_erode": 1,
+    "edge_clean_white_threshold": 230,
+    "edge_component_mode": "all",
+    "edge_clean_mode": "background",
     "viewpoints": "viewpoints.json",
     "train_transforms": "data/scenes/cat_more_face/transforms_train.json",
     "camera_angle_x": 1.413716694,
@@ -25,7 +33,6 @@
     "allow_repeat_cameras": false
   },
   "gaussian": {
-    "env": "gaussian_splatting_mesh",
     "repo": "gaussian-mesh-splatting",
     "source_path": "data/scenes/cat_more_face_generate10",
     "model_path": "outputs/gaussian_splatting/cat_more_face_generate10",

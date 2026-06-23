@@ -122,6 +122,29 @@ VIEWPOINTS = {
             "bottom",
         ]
     },
+    "labubu18": {
+        "azim": [
+            0, 45, 315, 90, 270, 135, 225, 180,
+            45, 135, 225, 315,
+            45, 135, 225, 315,
+            0, 0,
+        ],
+        "elev": [
+            15, 15, 15, 15, 15, 15, 15, 15,
+            45, 45, 45, 45,
+            -30, -30, -30, -30,
+            90, -90,
+        ],
+        "sector": [
+            "front", "front right", "front left", "right",
+            "left", "back right", "back left", "back",
+            "upper front right", "upper back right",
+            "upper back left", "upper front left",
+            "lower front right", "lower back right",
+            "lower back left", "lower front left",
+            "top", "bottom",
+        ],
+    },
     "objaverse": {
     "azim": [
         # Phase A (36) : elev=15, azim scan (mode 2 expanded)

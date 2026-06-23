@@ -82,21 +82,17 @@ The first stage is implemented under `easi-tex/`, with project-specific variants
 
 ### Environment
 
-The original setup is described in `easi-tex/README.md`. A typical environment is:
+Both stages use the single root-level `texture-synthesis` environment. Create it once from
+the checked-in definition:
 
 ```bash
-cd easi-tex
-conda create -n easitex python=3.10
-conda activate easitex
-
-conda install pytorch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 pytorch-cuda=11.8 -c pytorch -c nvidia
-conda install -c fvcore -c iopath -c conda-forge fvcore iopath
-conda install -c bottler nvidiacub
-conda install pytorch3d -c pytorch3d
-conda install xformers -c xformers
-
-pip install -r requirements.txt
+./scripts/setup_environment.sh
+conda activate texture-synthesis
 ```
+
+The same command updates an existing `texture-synthesis` environment and rebuilds both
+GaMeS CUDA extensions against its PyTorch version. On this Ubuntu/CUDA 11.5
+host it automatically uses GCC 10, avoiding CUDA's incompatibility with GCC 11.
 
 The following pretrained assets are expected by the texture synthesis code:
 
@@ -130,16 +126,10 @@ The second stage is implemented under `gaussian-mesh-splatting/`. It trains a Ga
 
 ### Environment
 
-The original setup is described in `gaussian-mesh-splatting/README.md`. A typical environment is:
-
-```bash
-cd gaussian-mesh-splatting
-conda env create --file environment.yml
-conda activate gaussian_splatting_mesh
-
-pip install submodules/diff-gaussian-rasterization
-pip install submodules/simple-knn
-```
+GaMeS runs in the same root-level `texture-synthesis` environment described above. Its
+Python dependencies are included in `environment.yml`, and the setup script
+builds its CUDA extensions; no second `gaussian_splatting_mesh` environment is
+required.
 
 ### Expected Dataset Format
 
@@ -227,7 +217,12 @@ The mesh-guided Gaussian model then learns a representation aligned with the tex
 
 ## Project-level Pipeline Runner
 
-This repository includes a lightweight runner that connects an EASI-DYC texture output folder to GaMeS training. The runner does not import either heavy codebase directly; it launches each stage as a subprocess so the texture and Gaussian stages can keep their own conda environments.
+This repository includes a lightweight runner that connects an EASI-DYC texture
+output folder to GaMeS training. The runner does not import either heavy codebase
+directly. It launches every stage in the one environment named by the config's
+top-level `env` field (or the `--env` command-line override). User-site Python
+packages are disabled for these subprocesses so `~/.local` cannot shadow the
+shared environment.
 
 The example config is:
 

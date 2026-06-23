@@ -1,0 +1,56 @@
+{
+  "env": "texture-synthesis",
+  "texture": {
+    "cwd": "easi-dyc",
+    "script": "scripts/generate_texture_frozenview0_labubu.py",
+    "input_dir": "data/meshes/cat",
+    "obj_file": "cat.obj",
+    "reference_image": "data/texture_images/round_bird/labubu.jpg",
+    "reference_mask": "data/texture_images/round_bird/labubu_mask.jpg",
+    "prompt": "kawaii chibi toy character, fluffy beige rabbit hood, big sparkling pink eyes, cute mischievous smile with small teeth, pastel toned, clean stitching details, soft fabric texture, blue pinstripe shirt, denim shorts, tiny sneakers",
+    "controlnet_cond": "canny",
+    "controlnet_strength": 1.0,
+    "ip_adapter_strength": 0.6,
+    "ddim_steps": 50,
+    "guidance_scale": 10.0,
+    "new_strength": 1.0,
+    "update_strength": 0.4,
+    "view_threshold": 0.1,
+    "dist": 0.8,
+    "num_viewpoints": 1,
+    "update_steps": 0,
+    "seed": 42,
+    "texture_resolution": "1k"
+  },
+  "camera": {
+    "preset": "labubu18",
+    "dist": 0.8,
+    "camera_angle_x": 1.413716694,
+    "rotate_x_deg": 90.0,
+    "rotate_y_deg": 0.0,
+    "rotate_z_deg": 0.0
+  },
+  "dataset": {
+    "source_mesh": "easi-dyc/data/meshes/cat/cat.obj",
+    "similarity_threshold": 0.1,
+    "minimum_valid_foreground_ratio": 0.65,
+    "minimum_retained_views": 6,
+    "mask_dilate_pixels": 2,
+    "mask_erode_pixels": 1,
+    "background_rgb": [255, 255, 255],
+    "test_mode": "copy-train",
+    "rotate_pole_views_180": true,
+    "pole_elevation_tolerance_deg": 0.000001
+  },
+  "gaussian": {
+    "repo": "gaussian-mesh-splatting",
+    "gs_type": "gs_mesh",
+    "num_splats": 5,
+    "iterations": 30000,
+    "white_background": true
+  },
+  "render": {
+    "render_train": true,
+    "render_test": true
+  }
+}

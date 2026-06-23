@@ -1,0 +1,86 @@
+{
+  "status": "pseudocode-design",
+  "env": "texture-synthesis",
+  "run": {
+    "name_template": "labubu_cat_dyc_{timestamp:%Y%m%d_%H%M}",
+    "reuse_existing": false,
+    "fail_if_any_output_exists": true,
+    "run_root": "outputs/pipeline_runs/{run_name}"
+  },
+  "texture": {
+    "implementation": "easi-dyc",
+    "cwd": "easi-dyc",
+    "script": "scripts/generate_texture_frozenview0_labubu.py",
+    "input_mesh": "data/meshes/cat/cat.obj",
+    "reference_image": "data/texture_images/round_bird/labubu.jpg",
+    "reference_mask": "data/texture_images/round_bird/labubu_mask.jpg",
+    "output_root": "outputs/texture_synthesis/{run_name}",
+    "override_rendering_0": "",
+    "prompt": "kawaii chibi toy character, fluffy beige rabbit hood, big sparkling pink eyes, cute mischievous smile with small teeth, pastel toned, clean stitching details, soft fabric texture, blue pinstripe shirt, denim shorts, tiny sneakers",
+    "controlnet_cond": "canny",
+    "controlnet_strength": 1.0,
+    "ip_adapter_strength": 0.6,
+    "ddim_steps": 50,
+    "guidance_scale": 10.0,
+    "new_strength": 1.0,
+    "update_strength": 0.4,
+    "dist": 0.8,
+    "camera_preset": "shapenet",
+    "num_base_viewpoints": 1,
+    "expected_generated_views": 10,
+    "extra_update_steps": 0,
+    "seed": 42,
+    "texture_resolution": "1k"
+  },
+  "camera": {
+    "export_script": "scripts/camera/export_camera_poses.py",
+    "convert_script": "scripts/camera/camera_poses_to_transforms.py",
+    "preset": "shapenet",
+    "dist": 0.8,
+    "camera_angle_x": 1.413716694,
+    "rotate_x_deg": 90.0,
+    "rotate_y_deg": 0.0,
+    "rotate_z_deg": 0.0,
+    "file_prefix": "./train",
+    "file_mode": "index"
+  },
+  "dataset": {
+    "scene_dir": "data/scenes/{run_name}",
+    "mesh_source": "easi-dyc/data/meshes/cat/cat.obj",
+    "mesh_transform": "dyc_center_and_unit_max_extent",
+    "do_not_use_generated_mesh": true,
+    "generated_image_dir": "{texture_run_dir}/generate/inpainted",
+    "numeric_images_only": true,
+    "expected_image_count": 10,
+    "mask_union_patterns": [
+      "{texture_run_dir}/generate/mask/{index}_old.png",
+      "{texture_run_dir}/generate/mask/{index}_update.png",
+      "{texture_run_dir}/generate/mask/{index}_new.png"
+    ],
+    "similarity_pattern": "{texture_run_dir}/generate/similarity/{index}.png",
+    "similarity_threshold": 0.1,
+    "minimum_valid_foreground_ratio": 0.65,
+    "mask_dilate_pixels": 2,
+    "mask_erode_pixels": 1,
+    "outside_mode": "white",
+    "reject_invalid_views": true,
+    "require_unique_camera_per_image": true,
+    "train_transforms": "{run_root}/camera/transforms_train.json",
+    "test_mode": "copy-train-for-smoke-test"
+  },
+  "gaussian": {
+    "training_is_opaque_required_step": true,
+    "show_training_details": false,
+    "repo": "gaussian-mesh-splatting",
+    "model_dir": "outputs/gaussian_splatting/{run_name}",
+    "gs_type": "gs_mesh",
+    "num_splats_per_face": 5,
+    "iterations": 30000,
+    "white_background": true
+  },
+  "render": {
+    "render_train": true,
+    "render_test": true,
+    "output_dir": "outputs/renders/{run_name}"
+  }
+}
